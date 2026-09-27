@@ -1,30 +1,19 @@
-# SARU SELECT V1-B — FREE TRIAL MODE
+# SARU SELECT — FREE TRIAL — Editable Indicators
 
-Mobile-first Streamlit stock screener for testing SMA and MACD crossover screening without a broker account or API credentials.
+Mobile-first Streamlit stock screener.
 
-## Trial data source
-Uses Yahoo Finance through `yfinance`. No FYERS credentials are required.
+Editable controls:
+- Time frame: 15m, 1H, 4H, 1D, 1W
+- SMA 1: 1–500
+- SMA 2: 2–500
+- MACD Short EMA: 1–200
+- MACD Long EMA: 2–500
+- MACD Signal EMA: 1–200
 
-## Signals
-- SMA BUY: SMA 1 crosses SMA 2 from below.
-- SMA SELL: SMA 1 crosses SMA 2 from above.
-- MACD BUY: MACD line crosses Signal line from below.
-- MACD SELL: MACD line crosses Signal line from above.
+Signals remain separate:
+- SMA BUY
+- SMA SELL
+- MACD BUY
+- MACD SELL
 
-Signals use the last completed candle (the newest bar is conservatively excluded).
-
-## Timeframes
-15m, 1H, 4H, 1D, 1W. 4H is constructed by resampling 1H data. Free upstream intraday availability and rate limits can change.
-
-## Market header
-NIFTY 50 and BANK NIFTY use Yahoo Finance index symbols. GIFT NIFTY is intentionally not shown in trial mode because a stable, authenticated feed should be used for that instrument.
-
-## Run
-```bash
-streamlit run app.py
-```
-
-For mobile-only deployment, upload these files to GitHub and deploy `app.py` with Streamlit Community Cloud.
-
-## Important
-This is a technical-screening/testing tool, not an order-execution system. Verify data with an official broker/exchange feed before trading.
+No FYERS/broker credentials are required in trial mode.

@@ -10,7 +10,8 @@ st.set_page_config(page_title='SARU Select — Free Trial', page_icon='📈', la
 st.markdown('''
 <style>
 .block-container {padding-top: .8rem; padding-bottom: 1.5rem; max-width: 1200px;}
-.stButton button {width:100%;}
+.stButton button {width:100%; min-height:2.7rem;}
+.stNumberInput input {font-size:1.05rem;}
 .small {font-size:.82rem; opacity:.75;}
 </style>
 ''', unsafe_allow_html=True)
@@ -138,18 +139,74 @@ c1.metric('NIFTY 50', f'₹{q1:,.2f}' if q1 else 'Unavailable', f'{p1:+.2f}%' if
 c2.metric('BANK NIFTY', f'₹{q2:,.2f}' if q2 else 'Unavailable', f'{p2:+.2f}%' if p2 is not None else None)
 c3.metric('GIFT NIFTY', 'Not in trial feed', help='GIFT NIFTY is intentionally disabled in this free trial data layer.')
 
-with st.sidebar:
-    st.header('SARU Controls')
-    tf=st.selectbox('Time frame', list(TIMEFRAMES.keys()), index=3)
-    universe=st.selectbox('Stock list', list(UNIVERSES.keys()))
-    s1=st.selectbox('SMA 1', [10,20,50,100,200], index=1)
-    s2=st.selectbox('SMA 2', [20,50,100,200], index=1)
-    st.subheader('MACD')
-    mf=st.number_input('Short EMA', min_value=2, max_value=100, value=12)
-    ms=st.number_input('Long EMA', min_value=3, max_value=200, value=26)
-    mg=st.number_input('Signal EMA', min_value=2, max_value=100, value=9)
-    run=st.button('🔍 RUN SCREEN', type='primary')
-    st.info('Trial data uses Yahoo Finance via yfinance. It is intended for testing, not execution. Intraday availability/rate limits are controlled by the upstream feed.')
+st.markdown('### 🔧 Choose your indicators and timeframe')
+with st.expander('⚙️ SARU SELECT — Scanner Settings', expanded=True):
+    st.markdown('**Time frame**')
+    tf = st.selectbox(
+        'Select time frame',
+        list(TIMEFRAMES.keys()),
+        index=3,
+        label_visibility='collapsed'
+    )
+
+    st.markdown('**Stock list**')
+    universe = st.selectbox(
+        'Select stock list',
+        list(UNIVERSES.keys()),
+        label_visibility='collapsed'
+    )
+
+    st.markdown('**SMA Crossover**')
+    col1, col2 = st.columns(2)
+    with col1:
+        s1 = st.number_input(
+            'SMA 1',
+            min_value=1,
+            max_value=500,
+            value=20,
+            step=1,
+            help='First/simple moving average period.'
+        )
+    with col2:
+        s2 = st.number_input(
+            'SMA 2',
+            min_value=2,
+            max_value=500,
+            value=50,
+            step=1,
+            help='Second/simple moving average period.'
+        )
+
+    st.markdown('**MACD Crossover**')
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        mf = st.number_input(
+            'Short EMA',
+            min_value=1,
+            max_value=200,
+            value=12,
+            step=1
+        )
+    with col2:
+        ms = st.number_input(
+            'Long EMA',
+            min_value=2,
+            max_value=500,
+            value=26,
+            step=1
+        )
+    with col3:
+        mg = st.number_input(
+            'Signal EMA',
+            min_value=1,
+            max_value=200,
+            value=9,
+            step=1
+        )
+
+    run = st.button('🔍 RUN SCREEN', type='primary', use_container_width=True)
+    st.caption('You can enter any valid SMA/EMA periods. For the standard MACD use 12 / 26 / 9. For SMA crossover, SARU requires SMA 1 < SMA 2.')
+    st.info('FREE TRIAL MODE: Yahoo Finance via yfinance. No broker account or API credentials are required. Data availability/rate limits are controlled by the upstream feed.')
 
 if 'results' not in st.session_state or run:
     if s1 >= s2: st.error('SMA 1 must be smaller than SMA 2 for this crossover setup.')
