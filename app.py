@@ -1,409 +1,199 @@
-
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
-from datetime import datetime, timedelta
-import time
+import yfinance as yf
+from datetime import datetime, timedelta, timezone
 
-try:
-    from fyers_apiv3 import fyersModel
-except Exception:
-    fyersModel = None
+st.set_page_config(page_title='SARU Select — Free Trial', page_icon='📈', layout='wide')
 
-st.set_page_config(page_title="SARU Select", page_icon="📈", layout="wide")
-
-# -----------------------------
-# Styling
-# -----------------------------
-st.markdown("""
+st.markdown('''
 <style>
-.block-container {padding-top: 1rem; padding-bottom: 2rem; max-width: 1200px;}
-h1 {margin-bottom: 0.2rem;}
-.small-note {font-size: 0.82rem; opacity: 0.75;}
-.signal-buy {background:#e8f7ee; padding:8px 12px; border-radius:10px; font-weight:700;}
-.signal-sell {background:#fdecec; padding:8px 12px; border-radius:10px; font-weight:700;}
+.block-container {padding-top: .8rem; padding-bottom: 1.5rem; max-width: 1200px;}
+.stButton button {width:100%;}
+.small {font-size:.82rem; opacity:.75;}
 </style>
-""", unsafe_allow_html=True)
+''', unsafe_allow_html=True)
 
-# -----------------------------
-# Helpers
-# -----------------------------
 TIMEFRAMES = {
-    "15m": {"resolution": "15", "lookback_days": 60},
-    "1H":  {"resolution": "60", "lookback_days": 180},
-    "4H":  {"resolution": "240", "lookback_days": 365},
-    "1D":  {"resolution": "D", "lookback_days": 900},
-    "1W":  {"resolution": "W", "lookback_days": 2500},
+    '15m': {'yf_interval':'15m','period':'60d','resample':None},
+    '1H': {'yf_interval':'60m','period':'730d','resample':None},
+    '4H': {'yf_interval':'60m','period':'730d','resample':'4h'},
+    '1D': {'yf_interval':'1d','period':'10y','resample':None},
+    '1W': {'yf_interval':'1d','period':'10y','resample':'W-FRI'},
 }
 
-DEFAULT_UNIVERSES = {
-    "NIFTY 50": [
-        ("ADANIENT","Adani Enterprises"),("ADANIPORTS","Adani Ports"),("APOLLOHOSP","Apollo Hospitals"),
-        ("ASIANPAINT","Asian Paints"),("AXISBANK","Axis Bank"),("BAJAJ-AUTO","Bajaj Auto"),
-        ("BAJFINANCE","Bajaj Finance"),("BAJAJFINSV","Bajaj Finserv"),("BEL","Bharat Electronics"),
-        ("BHARTIARTL","Bharti Airtel"),("CIPLA","Cipla"),("COALINDIA","Coal India"),("DRREDDY","Dr Reddy's"),
-        ("EICHERMOT","Eicher Motors"),("ETERNAL","Eternal"),("GRASIM","Grasim Industries"),
-        ("HCLTECH","HCL Technologies"),("HDFCBANK","HDFC Bank"),("HDFCLIFE","HDFC Life"),
-        ("HEROMOTOCO","Hero MotoCorp"),("HINDALCO","Hindalco"),("HINDUNILVR","Hindustan Unilever"),
-        ("ICICIBANK","ICICI Bank"),("INDUSINDBK","IndusInd Bank"),("INFY","Infosys"),("ITC","ITC"),
-        ("JIOFIN","Jio Financial Services"),("JSWSTEEL","JSW Steel"),("KOTAKBANK","Kotak Mahindra Bank"),
-        ("LT","Larsen & Toubro"),("M&M","Mahindra & Mahindra"),("MARUTI","Maruti Suzuki"),
-        ("MAXHEALTH","Max Healthcare"),("NESTLEIND","Nestle India"),("NTPC","NTPC"),
-        ("ONGC","ONGC"),("POWERGRID","Power Grid"),("RELIANCE","Reliance Industries"),
-        ("SBILIFE","SBI Life"),("SBIN","State Bank of India"),("SHRIRAMFIN","Shriram Finance"),
-        ("SUNPHARMA","Sun Pharma"),("TATACONSUM","Tata Consumer"),("TATASTEEL","Tata Steel"),
-        ("TCS","TCS"),("TECHM","Tech Mahindra"),("TITAN","Titan"),("TRENT","Trent"),
-        ("ULTRACEMCO","UltraTech Cement"),("WIPRO","Wipro")
-    ]
-}
+NIFTY50 = [
+('ADANIENT','Adani Enterprises'),('ADANIPORTS','Adani Ports'),('APOLLOHOSP','Apollo Hospitals'),
+('ASIANPAINT','Asian Paints'),('AXISBANK','Axis Bank'),('BAJAJ-AUTO','Bajaj Auto'),('BAJFINANCE','Bajaj Finance'),
+('BAJAJFINSV','Bajaj Finserv'),('BEL','Bharat Electronics'),('BHARTIARTL','Bharti Airtel'),('CIPLA','Cipla'),
+('COALINDIA','Coal India'),('DRREDDY','Dr Reddy\'s'),('EICHERMOT','Eicher Motors'),('ETERNAL','Eternal'),
+('GRASIM','Grasim Industries'),('HCLTECH','HCL Technologies'),('HDFCBANK','HDFC Bank'),('HDFCLIFE','HDFC Life'),
+('HEROMOTOCO','Hero MotoCorp'),('HINDALCO','Hindalco'),('HINDUNILVR','Hindustan Unilever'),('ICICIBANK','ICICI Bank'),
+('INDUSINDBK','IndusInd Bank'),('INFY','Infosys'),('ITC','ITC'),('JIOFIN','Jio Financial Services'),('JSWSTEEL','JSW Steel'),
+('KOTAKBANK','Kotak Mahindra Bank'),('LT','Larsen & Toubro'),('M&M','Mahindra & Mahindra'),('MARUTI','Maruti Suzuki'),
+('MAXHEALTH','Max Healthcare'),('NESTLEIND','Nestle India'),('NTPC','NTPC'),('ONGC','ONGC'),('POWERGRID','Power Grid'),
+('RELIANCE','Reliance Industries'),('SBILIFE','SBI Life'),('SBIN','State Bank of India'),('SHRIRAMFIN','Shriram Finance'),
+('SUNPHARMA','Sun Pharma'),('TATACONSUM','Tata Consumer'),('TATASTEEL','Tata Steel'),('TCS','TCS'),('TECHM','Tech Mahindra'),
+('TITAN','Titan'),('TRENT','Trent'),('ULTRACEMCO','UltraTech Cement'),('WIPRO','Wipro')]
 
-# FYERS equity symbol convention
-def fyers_symbol(symbol):
-    if ":" in symbol:
-        return symbol
-    return "NSE:" + symbol + "-EQ"
+UNIVERSES = {'NIFTY 50': NIFTY50}
 
-def make_universe_df():
+def ticker(sym):
+    return sym + '.NS'
+
+def normalize(df):
+    if df is None or df.empty: return pd.DataFrame()
+    if isinstance(df.columns, pd.MultiIndex):
+        df.columns = df.columns.get_level_values(0)
+    df = df.rename(columns={c:c.title() for c in df.columns})
+    cols = [c for c in ['Open','High','Low','Close','Volume'] if c in df.columns]
+    df = df[cols].dropna(subset=['Close']).copy()
+    return df
+
+@st.cache_data(ttl=300, show_spinner=False)
+def load_history(sym, tf):
+    cfg = TIMEFRAMES[tf]
+    try:
+        df = yf.download(ticker(sym), period=cfg['period'], interval=cfg['yf_interval'],
+                         auto_adjust=False, progress=False, threads=False)
+        df = normalize(df)
+        if df.empty: return df
+        if cfg['resample']:
+            rule = cfg['resample']
+            agg = {'Open':'first','High':'max','Low':'min','Close':'last','Volume':'sum'}
+            df = df.resample(rule).agg(agg).dropna(subset=['Close'])
+        # Use completed bars only: conservatively remove the latest bar.
+        if len(df) > 2:
+            df = df.iloc[:-1]
+        return df
+    except Exception:
+        return pd.DataFrame()
+
+@st.cache_data(ttl=300, show_spinner=False)
+def market_quote(symbol):
+    try:
+        df = yf.download(symbol, period='5d', interval='1d', auto_adjust=False, progress=False, threads=False)
+        df = normalize(df)
+        if df.empty: return None, None
+        last = float(df['Close'].iloc[-1])
+        prev = float(df['Close'].iloc[-2]) if len(df) > 1 else last
+        pct = (last-prev)/prev*100 if prev else 0
+        return last, pct
+    except Exception:
+        return None, None
+
+def sma_signal(df, s1, s2):
+    if len(df) < max(s1,s2)+2: return '—', None
+    a=df['Close'].rolling(s1).mean(); b=df['Close'].rolling(s2).mean()
+    if pd.isna(a.iloc[-2]) or pd.isna(b.iloc[-2]): return '—', None
+    if a.iloc[-2] <= b.iloc[-2] and a.iloc[-1] > b.iloc[-1]: return 'BUY', df.index[-1]
+    if a.iloc[-2] >= b.iloc[-2] and a.iloc[-1] < b.iloc[-1]: return 'SELL', df.index[-1]
+    return '—', None
+
+def macd_signal(df, fast, slow, signal):
+    if len(df) < slow+signal+3: return '—', None, None, None
+    m=df['Close'].ewm(span=fast,adjust=False).mean()-df['Close'].ewm(span=slow,adjust=False).mean()
+    s=m.ewm(span=signal,adjust=False).mean()
+    if m.iloc[-2] <= s.iloc[-2] and m.iloc[-1] > s.iloc[-1]: return 'BUY', df.index[-1], m.iloc[-1], s.iloc[-1]
+    if m.iloc[-2] >= s.iloc[-2] and m.iloc[-1] < s.iloc[-1]: return 'SELL', df.index[-1], m.iloc[-1], s.iloc[-1]
+    return '—', None, m.iloc[-1], s.iloc[-1]
+
+def scan(symbols, tf, s1, s2, mf, ms, mg):
     rows=[]
-    for universe, items in DEFAULT_UNIVERSES.items():
-        for s,n in items:
-            rows.append({"Universe": universe, "Symbol": s, "Name": n})
+    for sym,name in symbols:
+        df=load_history(sym,tf)
+        if df.empty: continue
+        ss,sd=sma_signal(df,s1,s2)
+        mm,md,mv,sv=macd_signal(df,mf,ms,mg)
+        rows.append({'Symbol':sym,'Name':name,'Price':float(df['Close'].iloc[-1]),
+                     'SMA Signal':ss,'SMA Cross':sd,'MACD Signal':mm,'MACD Cross':md,
+                     'MACD':mv,'Signal':sv})
     return pd.DataFrame(rows)
 
-UNIVERSE_DF = make_universe_df()
+def fmt_date(x):
+    if pd.isna(x) or x is None: return ''
+    try: return pd.Timestamp(x).strftime('%d-%b-%Y')
+    except: return ''
 
-def get_client(client_id, access_token):
-    if fyersModel is None:
-        raise RuntimeError("fyers-apiv3 is not installed.")
-    if not client_id or not access_token:
-        return None
-    return fyersModel.FyersModel(client_id=client_id, token=access_token, log_path="")
-
-def history(client, symbol, resolution, start_date, end_date):
-    data = {
-        "symbol": fyers_symbol(symbol),
-        "resolution": resolution,
-        "date_format": "1",
-        "range_from": start_date.strftime("%Y-%m-%d"),
-        "range_to": end_date.strftime("%Y-%m-%d"),
-        "cont_flag": "1"
-    }
-    resp = client.history(data=data)
-    if not isinstance(resp, dict) or resp.get("s") != "ok":
-        return pd.DataFrame()
-    candles = resp.get("candles", [])
-    if not candles:
-        return pd.DataFrame()
-    df = pd.DataFrame(candles, columns=["timestamp","open","high","low","close","volume"])
-    df["datetime"] = pd.to_datetime(df["timestamp"], unit="s", utc=True).dt.tz_convert("Asia/Kolkata")
-    df = df.set_index("datetime")
-    return df[["open","high","low","close","volume"]].astype(float).sort_index()
-
-def completed_candles(df, timeframe):
-    if df.empty:
-        return df
-    # FYERS says the candle timestamp marks the beginning of the interval.
-    # To avoid using a still-forming candle, drop the latest row.
-    return df.iloc[:-1].copy() if len(df) > 2 else df.copy()
-
-def sma(series, period):
-    return series.rolling(period).mean()
-
-def ema(series, period):
-    return series.ewm(span=period, adjust=False).mean()
-
-def macd_values(close, fast=12, slow=26, signal=9):
-    macd_line = ema(close, fast) - ema(close, slow)
-    signal_line = ema(macd_line, signal)
-    hist = macd_line - signal_line
-    return macd_line, signal_line, hist
-
-def cross_up(a, b):
-    return len(a) >= 2 and a.iloc[-2] <= b.iloc[-2] and a.iloc[-1] > b.iloc[-1]
-
-def cross_down(a, b):
-    return len(a) >= 2 and a.iloc[-2] >= b.iloc[-2] and a.iloc[-1] < b.iloc[-1]
-
-def analyze(df, sma1_period, sma2_period, macd_fast, macd_slow, macd_signal):
-    if df.empty:
-        return None
-    d = df.copy()
-    d["sma1"] = sma(d["close"], sma1_period)
-    d["sma2"] = sma(d["close"], sma2_period)
-    d["macd"], d["macd_signal"], d["macd_hist"] = macd_values(
-        d["close"], macd_fast, macd_slow, macd_signal
-    )
-    needed = max(sma1_period, sma2_period, macd_slow + macd_signal) + 3
-    if len(d.dropna()) < needed:
-        return None
-
-    last = d.iloc[-1]
-    sma_buy = cross_up(d["sma1"], d["sma2"])
-    sma_sell = cross_down(d["sma1"], d["sma2"])
-    macd_buy = cross_up(d["macd"], d["macd_signal"])
-    macd_sell = cross_down(d["macd"], d["macd_signal"])
-
-    signal_date = d.index[-1]
-    return {
-        "df": d,
-        "price": float(last["close"]),
-        "sma1": float(last["sma1"]),
-        "sma2": float(last["sma2"]),
-        "macd": float(last["macd"]),
-        "macd_signal": float(last["macd_signal"]),
-        "sma_buy": bool(sma_buy),
-        "sma_sell": bool(sma_sell),
-        "macd_buy": bool(macd_buy),
-        "macd_sell": bool(macd_sell),
-        "signal_date": signal_date,
-    }
-
-def get_quote_prices(client, symbols):
-    if not symbols:
-        return {}
-    out={}
-    # FYERS quote API supports up to 50 symbols per request.
-    for i in range(0, len(symbols), 50):
-        batch = symbols[i:i+50]
-        try:
-            resp=client.quotes(data={"symbols": ",".join(fyers_symbol(s) for s in batch)})
-            if isinstance(resp, dict) and resp.get("s") == "ok":
-                for item in resp.get("d", []):
-                    v=item.get("v", {})
-                    sym=item.get("symbol","")
-                    out[sym]=v.get("lp")
-        except Exception:
-            pass
-    return out
-
-def chart_for(df, sma1_period, sma2_period, symbol, timeframe):
+def chart(sym, tf, s1, s2, mf, ms, mg):
+    df=load_history(sym,tf)
+    if df.empty: return None
+    c=df['Close']; sma1=c.rolling(s1).mean(); sma2=c.rolling(s2).mean()
+    macd=c.ewm(span=mf,adjust=False).mean()-c.ewm(span=ms,adjust=False).mean(); sig=macd.ewm(span=mg,adjust=False).mean()
     fig=go.Figure()
-    fig.add_trace(go.Candlestick(
-        x=df.index, open=df["open"], high=df["high"], low=df["low"], close=df["close"],
-        name="Price"
-    ))
-    fig.add_trace(go.Scatter(x=df.index, y=df["sma1"], name=f"SMA {sma1_period}", mode="lines"))
-    fig.add_trace(go.Scatter(x=df.index, y=df["sma2"], name=f"SMA {sma2_period}", mode="lines"))
-    fig.update_layout(
-        title=f"{symbol} • {timeframe}",
-        height=520, xaxis_rangeslider_visible=False,
-        margin=dict(l=10,r=10,t=45,b=10)
-    )
-    return fig
+    fig.add_trace(go.Candlestick(x=df.index,open=df.Open,high=df.High,low=df.Low,close=df.Close,name='Price'))
+    fig.add_trace(go.Scatter(x=df.index,y=sma1,name=f'SMA {s1}',mode='lines'))
+    fig.add_trace(go.Scatter(x=df.index,y=sma2,name=f'SMA {s2}',mode='lines'))
+    fig.update_layout(height=480,margin=dict(l=10,r=10,t=35,b=10),xaxis_rangeslider_visible=False)
+    return fig, df, macd, sig
 
-# -----------------------------
-# Sidebar
-# -----------------------------
-st.sidebar.title("⚙️ SARU Settings")
-st.sidebar.caption("Mobile-first stock scanner • V1")
+st.title('📈 SARU SELECT')
+st.caption('FREE TRIAL MODE • No broker account or API credentials required')
 
-client_id = st.sidebar.text_input("FYERS Client ID", type="password")
-access_token = st.sidebar.text_input("FYERS Access Token", type="password")
+# Market header
+q1,p1=market_quote('^NSEI'); q2,p2=market_quote('^NSEBANK')
+c1,c2,c3=st.columns(3)
+c1.metric('NIFTY 50', f'₹{q1:,.2f}' if q1 else 'Unavailable', f'{p1:+.2f}%' if p1 is not None else None)
+c2.metric('BANK NIFTY', f'₹{q2:,.2f}' if q2 else 'Unavailable', f'{p2:+.2f}%' if p2 is not None else None)
+c3.metric('GIFT NIFTY', 'Not in trial feed', help='GIFT NIFTY is intentionally disabled in this free trial data layer.')
 
-st.sidebar.markdown("---")
-timeframe = st.sidebar.selectbox("Time frame", list(TIMEFRAMES.keys()), index=3)
+with st.sidebar:
+    st.header('SARU Controls')
+    tf=st.selectbox('Time frame', list(TIMEFRAMES.keys()), index=3)
+    universe=st.selectbox('Stock list', list(UNIVERSES.keys()))
+    s1=st.selectbox('SMA 1', [10,20,50,100,200], index=1)
+    s2=st.selectbox('SMA 2', [20,50,100,200], index=1)
+    st.subheader('MACD')
+    mf=st.number_input('Short EMA', min_value=2, max_value=100, value=12)
+    ms=st.number_input('Long EMA', min_value=3, max_value=200, value=26)
+    mg=st.number_input('Signal EMA', min_value=2, max_value=100, value=9)
+    run=st.button('🔍 RUN SCREEN', type='primary')
+    st.info('Trial data uses Yahoo Finance via yfinance. It is intended for testing, not execution. Intraday availability/rate limits are controlled by the upstream feed.')
 
-universe_choice = st.sidebar.selectbox(
-    "Stock list",
-    ["NIFTY 50", "Custom CSV"]
-)
+if 'results' not in st.session_state or run:
+    if s1 >= s2: st.error('SMA 1 must be smaller than SMA 2 for this crossover setup.')
+    else:
+        with st.spinner('Scanning…'):
+            st.session_state.results=scan(UNIVERSES[universe],tf,s1,s2,mf,ms,mg)
+        st.session_state.params=(tf,s1,s2,mf,ms,mg)
 
-uploaded = st.sidebar.file_uploader(
-    "Optional: upload universe CSV",
-    type=["csv"],
-    help="CSV columns: Symbol, Name. Optional Universe column."
-)
+res=st.session_state.get('results',pd.DataFrame())
+if res.empty:
+    st.warning('Tap RUN SCREEN to start. If no rows appear, the free upstream feed may be temporarily unavailable or rate-limited.')
+else:
+    sma_buy=res[res['SMA Signal']=='BUY'].copy(); sma_sell=res[res['SMA Signal']=='SELL'].copy()
+    macd_buy=res[res['MACD Signal']=='BUY'].copy(); macd_sell=res[res['MACD Signal']=='SELL'].copy()
+    st.subheader('Signals')
+    a,b,c,d=st.columns(4)
+    a.metric('🟢 SMA BUY',len(sma_buy)); b.metric('🔴 SMA SELL',len(sma_sell)); c.metric('🟢 MACD BUY',len(macd_buy)); d.metric('🔴 MACD SELL',len(macd_sell))
+    tabs=st.tabs(['🟢 SMA BUY','🔴 SMA SELL','🟢 MACD BUY','🔴 MACD SELL','All scanned'])
+    def show(df, kind):
+        if df.empty: st.info('No fresh crossover detected on the last completed candle.')
+        else:
+            x=df[['Symbol','Name','Price']].copy()
+            x['Cross date']=df['SMA Cross' if kind=='SMA' else 'MACD Cross'].map(fmt_date)
+            st.dataframe(x,hide_index=True,use_container_width=True)
+    with tabs[0]: show(sma_buy,'SMA')
+    with tabs[1]: show(sma_sell,'SMA')
+    with tabs[2]: show(macd_buy,'MACD')
+    with tabs[3]: show(macd_sell,'MACD')
+    with tabs[4]:
+        st.dataframe(res[['Symbol','Name','Price','SMA Signal','MACD Signal']],hide_index=True,use_container_width=True)
 
-st.sidebar.markdown("---")
-sma1_period = st.sidebar.selectbox("SMA 1", [10,20,50,100,200], index=1)
-sma2_options=[20,50,100,200]
-sma2_period = st.sidebar.selectbox("SMA 2", sma2_options, index=1)
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("MACD")
-macd_fast = st.sidebar.number_input("Short EMA", 2, 100, 12)
-macd_slow = st.sidebar.number_input("Long EMA", 3, 200, 26)
-macd_signal = st.sidebar.number_input("Signal EMA", 2, 100, 9)
-
-max_scan = st.sidebar.slider("Maximum stocks per scan", 10, 500, 50, 10)
-
-st.sidebar.markdown("---")
-st.sidebar.caption(
-    "Signals use the last completed candle. This avoids treating a still-forming candle as a confirmed crossover."
-)
-
-# -----------------------------
-# Main header
-# -----------------------------
-st.title("📈 SARU SELECT")
-st.caption("SMA crossover + MACD crossover scanner with individual stock charts")
-
-# Header market data
-if client_id and access_token:
-    try:
-        client=get_client(client_id, access_token)
-        header_symbols=["NIFTY50-INDEX","NIFTYBANK-INDEX"]
-        prices=get_quote_prices(client, header_symbols)
-        c1,c2,c3=st.columns(3)
+    st.divider(); st.subheader('📊 Stock chart')
+    sym=st.selectbox('Select stock', [x[0] for x in UNIVERSES[universe]])
+    out=chart(sym,tf,s1,s2,mf,ms,mg)
+    if out:
+        fig,df,macd,sig=out
+        st.plotly_chart(fig,use_container_width=True)
+        ss,sd=sma_signal(df,s1,s2); mm,md,mv,sv=macd_signal(df,mf,ms,mg)
+        c1,c2=st.columns(2)
         with c1:
-            st.metric("NIFTY 50", prices.get("NSE:NIFTY50-INDEX","—"))
+            st.markdown(f'**SMA {s1}/{s2}:** `{ss}`')
+            if sd: st.caption('Crossover: '+fmt_date(sd))
         with c2:
-            st.metric("BANK NIFTY", prices.get("NSE:NIFTYBANK-INDEX","—"))
-        with c3:
-            st.metric("GIFT NIFTY", "Set symbol")
-            st.caption("Use the sidebar/API symbol setting in a later version; do not guess a GIFT quote.")
-    except Exception as e:
-        st.warning("FYERS connection failed. Check Client ID and Access Token.")
-else:
-    c1,c2,c3=st.columns(3)
-    c1.metric("NIFTY 50","—")
-    c2.metric("BANK NIFTY","—")
-    c3.metric("GIFT NIFTY","—")
-    st.info("Enter your FYERS Client ID and Access Token in the sidebar to load live market data.")
+            st.markdown(f'**MACD {mf}/{ms}/{mg}:** `{mm}`')
+            if md: st.caption('Crossover: '+fmt_date(md))
 
-# -----------------------------
-# Universe
-# -----------------------------
-if uploaded is not None:
-    try:
-        u=pd.read_csv(uploaded)
-        required={"Symbol","Name"}
-        if not required.issubset(u.columns):
-            st.error("CSV must contain Symbol and Name columns.")
-            st.stop()
-        universe_df=u.copy()
-    except Exception:
-        st.error("Could not read the uploaded CSV.")
-        st.stop()
-else:
-    universe_df=UNIVERSE_DF[UNIVERSE_DF["Universe"]=="NIFTY 50"].copy()
-
-symbols=universe_df["Symbol"].dropna().astype(str).tolist()
-symbols=symbols[:max_scan]
-
-# -----------------------------
-# Run scan
-# -----------------------------
-st.markdown("### 🔍 Scanner")
-run=st.button("RUN SCREEN", type="primary", use_container_width=True)
-
-if run:
-    if not client_id or not access_token:
-        st.error("Enter FYERS Client ID and Access Token first.")
-        st.stop()
-
-    client=get_client(client_id, access_token)
-    tf=TIMEFRAMES[timeframe]
-    end=datetime.now()
-    start=end-timedelta(days=tf["lookback_days"])
-
-    results=[]
-    progress=st.progress(0)
-    status=st.empty()
-
-    for idx,symbol in enumerate(symbols, start=1):
-        status.write(f"Scanning {idx}/{len(symbols)}: {symbol}")
-        try:
-            df=history(client, symbol, tf["resolution"], start, end)
-            df=completed_candles(df, timeframe)
-            a=analyze(df, sma1_period, sma2_period, macd_fast, macd_slow, macd_signal)
-            if a:
-                results.append({
-                    "Symbol":symbol,
-                    "Name":universe_df.loc[universe_df["Symbol"]==symbol,"Name"].iloc[0],
-                    "Price":a["price"],
-                    "SMA BUY":a["sma_buy"],
-                    "SMA SELL":a["sma_sell"],
-                    "MACD BUY":a["macd_buy"],
-                    "MACD SELL":a["macd_sell"],
-                    "Signal Candle":a["signal_date"].strftime("%Y-%m-%d %H:%M"),
-                    "_data":a["df"]
-                })
-        except Exception:
-            pass
-        progress.progress(idx/len(symbols))
-
-    status.empty()
-    progress.empty()
-
-    if not results:
-        st.warning("No valid results. Check API credentials, symbols, or try NIFTY 50 with 1D first.")
-        st.stop()
-
-    st.session_state["results"]=results
-    st.session_state["scan_settings"]={
-        "timeframe":timeframe, "sma1":sma1_period, "sma2":sma2_period,
-        "macd_fast":macd_fast, "macd_slow":macd_slow, "macd_signal":macd_signal
-    }
-
-# -----------------------------
-# Results
-# -----------------------------
-if "results" in st.session_state:
-    results=st.session_state["results"]
-    settings=st.session_state["scan_settings"]
-
-    rows=[]
-    for r in results:
-        rows.append({k:v for k,v in r.items() if k!="_data"})
-    all_df=pd.DataFrame(rows)
-
-    sma_buy=all_df[all_df["SMA BUY"]].copy()
-    sma_sell=all_df[all_df["SMA SELL"]].copy()
-    macd_buy=all_df[all_df["MACD BUY"]].copy()
-    macd_sell=all_df[all_df["MACD SELL"]].copy()
-
-    st.markdown("### Signals")
-    tabs=st.tabs([
-        f"🟢 SMA BUY ({len(sma_buy)})",
-        f"🔴 SMA SELL ({len(sma_sell)})",
-        f"🟢 MACD BUY ({len(macd_buy)})",
-        f"🔴 MACD SELL ({len(macd_sell)})",
-    ])
-
-    def show_signal(tab, df):
-        with tab:
-            if df.empty:
-                st.info("No crossover detected on the last completed candle.")
-            else:
-                display=df[["Symbol","Name","Price","Signal Candle"]].copy()
-                display["Price"]=display["Price"].round(2)
-                st.dataframe(display, use_container_width=True, hide_index=True)
-
-    show_signal(tabs[0],sma_buy)
-    show_signal(tabs[1],sma_sell)
-    show_signal(tabs[2],macd_buy)
-    show_signal(tabs[3],macd_sell)
-
-    st.markdown("### Stock chart")
-    selectable=[r["Symbol"] for r in results]
-    selected=st.selectbox("Select stock", selectable)
-
-    selected_row=next(r for r in results if r["Symbol"]==selected)
-    d=selected_row["_data"]
-
-    st.plotly_chart(
-        chart_for(d, settings["sma1"], settings["sma2"], selected, settings["timeframe"]),
-        use_container_width=True
-    )
-
-    m1,m2,m3,m4=st.columns(4)
-    m1.metric("Price", f"₹{selected_row['Price']:.2f}")
-    m2.metric(f"SMA {settings['sma1']}", f"₹{selected_row['sma1']:.2f}")
-    m3.metric(f"SMA {settings['sma2']}", f"₹{selected_row['sma2']:.2f}")
-    m4.metric("MACD", f"{selected_row['macd']:.3f}")
-
-    st.caption(
-        f"Last completed candle: {selected_row['Signal Candle']} • "
-        f"MACD Signal: {selected_row['macd_signal']:.3f}"
-    )
-
-    st.markdown("### Full scan")
-    st.dataframe(all_df, use_container_width=True, hide_index=True)
-
-st.markdown("---")
-st.caption(
-    "SARU is a technical screening tool. A crossover is not a guarantee of future returns. "
-    "Verify the signal, liquidity, market conditions and your own risk rules before trading."
-)
+st.caption('Data-source note: trial mode is for testing the application. Verify market data with an official broker/exchange feed before making trading decisions.')
