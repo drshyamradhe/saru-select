@@ -1,19 +1,17 @@
-# SARU SELECT — FREE TRIAL — Editable Indicators
+# Saru Select
 
-Mobile-first Streamlit stock screener.
+A stock screening application built using Streamlit and Python based on custom SMA and MACD strategies.
 
-Editable controls:
-- Time frame: 15m, 1H, 4H, 1D, 1W
-- SMA 1: 1–500
-- SMA 2: 2–500
-- MACD Short EMA: 1–200
-- MACD Long EMA: 2–500
-- MACD Signal EMA: 1–200
+## Included Files
+- `app.py`: Main Streamlit web application script.
+- `requirements.txt`: Python package dependencies for deployment.
+- `.gitignore`: Specifies intentionally untracked files to ignore when uploading to GitHub.
 
-Signals remain separate:
-- SMA BUY
-- SMA SELL
-- MACD BUY
-- MACD SELL
+## How to Upload to GitHub from Mobile / Web
 
-No FYERS/broker credentials are required in trial mode.
+1. Unzip `saru_select_app.zip` on your phone or computer.
+2. Open [GitHub](https://github.com) in your web browser.
+3. Tap **+** -> **New repository**. Name it `saru-select` and tap **Create repository**.
+4. Tap **uploading an existing file**.
+5. Upload all extracted files (`app.py`, `requirements.txt`, `README.md`, `.gitignore`).
+6. Tap **Commit changes**.

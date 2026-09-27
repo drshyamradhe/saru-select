@@ -1,256 +1,161 @@
 import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
 import yfinance as yf
-from datetime import datetime, timedelta, timezone
+import pandas as pd
+import ta
 
-st.set_page_config(page_title='SARU Select — Free Trial', page_icon='📈', layout='wide')
+# Page Configuration
+st.set_page_config(page_title="Saru Select", layout="wide")
+st.title("Saru Select")
 
-st.markdown('''
-<style>
-.block-container {padding-top: .8rem; padding-bottom: 1.5rem; max-width: 1200px;}
-.stButton button {width:100%; min-height:2.7rem;}
-.stNumberInput input {font-size:1.05rem;}
-.small {font-size:.82rem; opacity:.75;}
-</style>
-''', unsafe_allow_html=True)
+# --- 1. Top Live Price Bar ---
+col_nifty, col_banknifty = st.columns(2)
 
-TIMEFRAMES = {
-    '15m': {'yf_interval':'15m','period':'60d','resample':None},
-    '1H': {'yf_interval':'60m','period':'730d','resample':None},
-    '4H': {'yf_interval':'60m','period':'730d','resample':'4h'},
-    '1D': {'yf_interval':'1d','period':'10y','resample':None},
-    '1W': {'yf_interval':'1d','period':'10y','resample':'W-FRI'},
-}
-
-NIFTY50 = [
-('ADANIENT','Adani Enterprises'),('ADANIPORTS','Adani Ports'),('APOLLOHOSP','Apollo Hospitals'),
-('ASIANPAINT','Asian Paints'),('AXISBANK','Axis Bank'),('BAJAJ-AUTO','Bajaj Auto'),('BAJFINANCE','Bajaj Finance'),
-('BAJAJFINSV','Bajaj Finserv'),('BEL','Bharat Electronics'),('BHARTIARTL','Bharti Airtel'),('CIPLA','Cipla'),
-('COALINDIA','Coal India'),('DRREDDY','Dr Reddy\'s'),('EICHERMOT','Eicher Motors'),('ETERNAL','Eternal'),
-('GRASIM','Grasim Industries'),('HCLTECH','HCL Technologies'),('HDFCBANK','HDFC Bank'),('HDFCLIFE','HDFC Life'),
-('HEROMOTOCO','Hero MotoCorp'),('HINDALCO','Hindalco'),('HINDUNILVR','Hindustan Unilever'),('ICICIBANK','ICICI Bank'),
-('INDUSINDBK','IndusInd Bank'),('INFY','Infosys'),('ITC','ITC'),('JIOFIN','Jio Financial Services'),('JSWSTEEL','JSW Steel'),
-('KOTAKBANK','Kotak Mahindra Bank'),('LT','Larsen & Toubro'),('M&M','Mahindra & Mahindra'),('MARUTI','Maruti Suzuki'),
-('MAXHEALTH','Max Healthcare'),('NESTLEIND','Nestle India'),('NTPC','NTPC'),('ONGC','ONGC'),('POWERGRID','Power Grid'),
-('RELIANCE','Reliance Industries'),('SBILIFE','SBI Life'),('SBIN','State Bank of India'),('SHRIRAMFIN','Shriram Finance'),
-('SUNPHARMA','Sun Pharma'),('TATACONSUM','Tata Consumer'),('TATASTEEL','Tata Steel'),('TCS','TCS'),('TECHM','Tech Mahindra'),
-('TITAN','Titan'),('TRENT','Trent'),('ULTRACEMCO','UltraTech Cement'),('WIPRO','Wipro')]
-
-UNIVERSES = {'NIFTY 50': NIFTY50}
-
-def ticker(sym):
-    return sym + '.NS'
-
-def normalize(df):
-    if df is None or df.empty: return pd.DataFrame()
-    if isinstance(df.columns, pd.MultiIndex):
-        df.columns = df.columns.get_level_values(0)
-    df = df.rename(columns={c:c.title() for c in df.columns})
-    cols = [c for c in ['Open','High','Low','Close','Volume'] if c in df.columns]
-    df = df[cols].dropna(subset=['Close']).copy()
-    return df
-
-@st.cache_data(ttl=300, show_spinner=False)
-def load_history(sym, tf):
-    cfg = TIMEFRAMES[tf]
+@st.cache_data(ttl=60)
+def get_index_price(ticker_symbol):
     try:
-        df = yf.download(ticker(sym), period=cfg['period'], interval=cfg['yf_interval'],
-                         auto_adjust=False, progress=False, threads=False)
-        df = normalize(df)
-        if df.empty: return df
-        if cfg['resample']:
-            rule = cfg['resample']
-            agg = {'Open':'first','High':'max','Low':'min','Close':'last','Volume':'sum'}
-            df = df.resample(rule).agg(agg).dropna(subset=['Close'])
-        # Use completed bars only: conservatively remove the latest bar.
-        if len(df) > 2:
-            df = df.iloc[:-1]
-        return df
+        ticker = yf.Ticker(ticker_symbol)
+        data = ticker.history(period="2d")
+        if len(data) >= 2:
+            latest = data['Close'].iloc[-1]
+            prev = data['Close'].iloc[-2]
+            change = latest - prev
+            pct_change = (change / prev) * 100
+            return latest, change, pct_change
     except Exception:
-        return pd.DataFrame()
+        pass
+    return None, None, None
 
-@st.cache_data(ttl=300, show_spinner=False)
-def market_quote(symbol):
-    try:
-        df = yf.download(symbol, period='5d', interval='1d', auto_adjust=False, progress=False, threads=False)
-        df = normalize(df)
-        if df.empty: return None, None
-        last = float(df['Close'].iloc[-1])
-        prev = float(df['Close'].iloc[-2]) if len(df) > 1 else last
-        pct = (last-prev)/prev*100 if prev else 0
-        return last, pct
-    except Exception:
-        return None, None
+nifty_price, nifty_change, nifty_pct = get_index_price("^NSEI")
+bank_price, bank_change, bank_pct = get_index_price("^NSEBANK")
 
-def sma_signal(df, s1, s2):
-    if len(df) < max(s1,s2)+2: return '—', None
-    a=df['Close'].rolling(s1).mean(); b=df['Close'].rolling(s2).mean()
-    if pd.isna(a.iloc[-2]) or pd.isna(b.iloc[-2]): return '—', None
-    if a.iloc[-2] <= b.iloc[-2] and a.iloc[-1] > b.iloc[-1]: return 'BUY', df.index[-1]
-    if a.iloc[-2] >= b.iloc[-2] and a.iloc[-1] < b.iloc[-1]: return 'SELL', df.index[-1]
-    return '—', None
-
-def macd_signal(df, fast, slow, signal):
-    if len(df) < slow+signal+3: return '—', None, None, None
-    m=df['Close'].ewm(span=fast,adjust=False).mean()-df['Close'].ewm(span=slow,adjust=False).mean()
-    s=m.ewm(span=signal,adjust=False).mean()
-    if m.iloc[-2] <= s.iloc[-2] and m.iloc[-1] > s.iloc[-1]: return 'BUY', df.index[-1], m.iloc[-1], s.iloc[-1]
-    if m.iloc[-2] >= s.iloc[-2] and m.iloc[-1] < s.iloc[-1]: return 'SELL', df.index[-1], m.iloc[-1], s.iloc[-1]
-    return '—', None, m.iloc[-1], s.iloc[-1]
-
-def scan(symbols, tf, s1, s2, mf, ms, mg):
-    rows=[]
-    for sym,name in symbols:
-        df=load_history(sym,tf)
-        if df.empty: continue
-        ss,sd=sma_signal(df,s1,s2)
-        mm,md,mv,sv=macd_signal(df,mf,ms,mg)
-        rows.append({'Symbol':sym,'Name':name,'Price':float(df['Close'].iloc[-1]),
-                     'SMA Signal':ss,'SMA Cross':sd,'MACD Signal':mm,'MACD Cross':md,
-                     'MACD':mv,'Signal':sv})
-    return pd.DataFrame(rows)
-
-def fmt_date(x):
-    if pd.isna(x) or x is None: return ''
-    try: return pd.Timestamp(x).strftime('%d-%b-%Y')
-    except: return ''
-
-def chart(sym, tf, s1, s2, mf, ms, mg):
-    df=load_history(sym,tf)
-    if df.empty: return None
-    c=df['Close']; sma1=c.rolling(s1).mean(); sma2=c.rolling(s2).mean()
-    macd=c.ewm(span=mf,adjust=False).mean()-c.ewm(span=ms,adjust=False).mean(); sig=macd.ewm(span=mg,adjust=False).mean()
-    fig=go.Figure()
-    fig.add_trace(go.Candlestick(x=df.index,open=df.Open,high=df.High,low=df.Low,close=df.Close,name='Price'))
-    fig.add_trace(go.Scatter(x=df.index,y=sma1,name=f'SMA {s1}',mode='lines'))
-    fig.add_trace(go.Scatter(x=df.index,y=sma2,name=f'SMA {s2}',mode='lines'))
-    fig.update_layout(height=480,margin=dict(l=10,r=10,t=35,b=10),xaxis_rangeslider_visible=False)
-    return fig, df, macd, sig
-
-st.title('📈 SARU SELECT')
-st.caption('FREE TRIAL MODE • No broker account or API credentials required')
-
-# Market header
-q1,p1=market_quote('^NSEI'); q2,p2=market_quote('^NSEBANK')
-c1,c2,c3=st.columns(3)
-c1.metric('NIFTY 50', f'₹{q1:,.2f}' if q1 else 'Unavailable', f'{p1:+.2f}%' if p1 is not None else None)
-c2.metric('BANK NIFTY', f'₹{q2:,.2f}' if q2 else 'Unavailable', f'{p2:+.2f}%' if p2 is not None else None)
-c3.metric('GIFT NIFTY', 'Not in trial feed', help='GIFT NIFTY is intentionally disabled in this free trial data layer.')
-
-st.markdown('### 🔧 Choose your indicators and timeframe')
-with st.expander('⚙️ SARU SELECT — Scanner Settings', expanded=True):
-    st.markdown('**Time frame**')
-    tf = st.selectbox(
-        'Select time frame',
-        list(TIMEFRAMES.keys()),
-        index=3,
-        label_visibility='collapsed'
-    )
-
-    st.markdown('**Stock list**')
-    universe = st.selectbox(
-        'Select stock list',
-        list(UNIVERSES.keys()),
-        label_visibility='collapsed'
-    )
-
-    st.markdown('**SMA Crossover**')
-    col1, col2 = st.columns(2)
-    with col1:
-        s1 = st.number_input(
-            'SMA 1',
-            min_value=1,
-            max_value=500,
-            value=20,
-            step=1,
-            help='First/simple moving average period.'
-        )
-    with col2:
-        s2 = st.number_input(
-            'SMA 2',
-            min_value=2,
-            max_value=500,
-            value=50,
-            step=1,
-            help='Second/simple moving average period.'
-        )
-
-    st.markdown('**MACD Crossover**')
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        mf = st.number_input(
-            'Short EMA',
-            min_value=1,
-            max_value=200,
-            value=12,
-            step=1
-        )
-    with col2:
-        ms = st.number_input(
-            'Long EMA',
-            min_value=2,
-            max_value=500,
-            value=26,
-            step=1
-        )
-    with col3:
-        mg = st.number_input(
-            'Signal EMA',
-            min_value=1,
-            max_value=200,
-            value=9,
-            step=1
-        )
-
-    run = st.button('🔍 RUN SCREEN', type='primary', use_container_width=True)
-    st.caption('You can enter any valid SMA/EMA periods. For the standard MACD use 12 / 26 / 9. For SMA crossover, SARU requires SMA 1 < SMA 2.')
-    st.info('FREE TRIAL MODE: Yahoo Finance via yfinance. No broker account or API credentials are required. Data availability/rate limits are controlled by the upstream feed.')
-
-if 'results' not in st.session_state or run:
-    if s1 >= s2: st.error('SMA 1 must be smaller than SMA 2 for this crossover setup.')
+with col_nifty:
+    if nifty_price:
+        st.metric(label="Nifty Live Price", value=f"₹{nifty_price:,.2f}", delta=f"{nifty_change:+.2f} ({nifty_pct:+.2f}%)")
     else:
-        with st.spinner('Scanning…'):
-            st.session_state.results=scan(UNIVERSES[universe],tf,s1,s2,mf,ms,mg)
-        st.session_state.params=(tf,s1,s2,mf,ms,mg)
+        st.write("Nifty Live Price: Unavailable")
 
-res=st.session_state.get('results',pd.DataFrame())
-if res.empty:
-    st.warning('Tap RUN SCREEN to start. If no rows appear, the free upstream feed may be temporarily unavailable or rate-limited.')
+with col_banknifty:
+    if bank_price:
+        st.metric(label="Bank Nifty Live Price", value=f"₹{bank_price:,.2f}", delta=f"{bank_change:+.2f} ({bank_pct:+.2f}%)")
+    else:
+        st.write("Bank Nifty Live Price: Unavailable")
+
+st.markdown("---")
+
+# --- Sidebar Inputs ---
+st.sidebar.header("Parameters")
+
+# Timeframe Selection
+timeframe_map = {
+    "15 min": "15m",
+    "1 hour": "60m",
+    "4 hour": "1h", # Approximated via resampling
+    "1 day": "1d",
+    "1 week": "1wk"
+}
+selected_tf_label = st.sidebar.selectbox("Select Time Frame", list(timeframe_map.keys()), index=3)
+selected_tf = timeframe_map[selected_tf_label]
+
+# Stock List Selection
+stock_lists = {
+    "Nifty 50": ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS", "HINDUNILVR.NS", "ITC.NS", "SBIN.NS", "BHARTIARTL.NS", "LTIM.NS"],
+    "Nifty Next 50": ["BEL.NS", "COALINDIA.NS", "DLF.NS", "HAL.NS", "IOC.NS", "IRFC.NS", "JIOFIN.NS", "PFC.NS", "RECLTD.NS", "SIEMENS.NS"],
+    "Nifty 200": ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS", "TATAMOTORS.NS", "AXISBANK.NS", "ADANIENT.NS"],
+    "Nifty 500": ["RELIANCE.NS", "TCS.NS", "HDFCBANK.NS", "INFY.NS", "ICICIBANK.NS", "ZOMATO.NS", "PAYTM.NS", "POLICYBZR.NS"],
+    "Nifty F&O": ["BANKBARODA.NS", "CANBK.NS", "FEDERALBNK.NS", "IDFCFIRSTB.NS", "PNB.NS", "RBLBANK.NS"]
+}
+selected_list_label = st.sidebar.selectbox("Select Stock List", list(stock_lists.keys()))
+selected_stocks = stock_lists[selected_list_label]
+
+# Moving Average Inputs
+st.sidebar.subheader("SMA Settings")
+sma1_val = st.sidebar.selectbox("Select SMA 1 (Short)", [10, 20, 50, 100, 200], index=0)
+sma2_val = st.sidebar.selectbox("Select SMA 2 (Long)", [100, 200, 50], index=0)
+
+# MACD Inputs
+st.sidebar.subheader("MACD Settings")
+macd_fast = st.sidebar.number_input("Short SMA (Fast)", value=12)
+macd_slow = st.sidebar.number_input("Long SMA (Slow)", value=26)
+macd_signal = st.sidebar.number_input("Signal SMA", value=9)
+
+# --- Fetch & Analyze Data ---
+def fetch_data(ticker, period, interval):
+    data = yf.download(ticker, period=period, interval=interval, progress=False)
+    if data.empty:
+        return pd.DataFrame()
+    if isinstance(data.columns, pd.MultiIndex):
+        data.columns = data.columns.get_level_values(0)
+    return data
+
+def analyze_stock(ticker):
+    if selected_tf in ["15m", "60m", "1h"]:
+        period = "1mo"
+    else:
+        period = "2y"
+        
+    df = fetch_data(ticker, period=period, interval="60m" if selected_tf == "1h" else selected_tf)
+    
+    if df.empty or len(df) < max(sma1_val, sma2_val, macd_slow + macd_signal):
+        return None
+
+    if selected_tf_label == "4 hour":
+        df = df.resample('4h').agg({
+            'Open': 'first',
+            'High': 'max',
+            'Low': 'min',
+            'Close': 'last',
+            'Volume': 'sum'
+        }).dropna()
+
+    df['SMA1'] = df['Close'].rolling(window=sma1_val).mean()
+    df['SMA2'] = df['Close'].rolling(window=sma2_val).mean()
+
+    macd_obj = ta.trend.MACD(
+        close=df['Close'], 
+        window_slow=macd_slow, 
+        window_fast=macd_fast, 
+        window_sign=macd_signal
+    )
+    df['MACD'] = macd_obj.macd()
+    df['MACD_Signal'] = macd_obj.macd_signal()
+
+    df = df.dropna()
+    if len(df) < 2:
+        return None
+
+    curr = df.iloc[-1]
+    prev = df.iloc[-2]
+
+    sma_buy = (prev['SMA1'] <= prev['SMA2']) and (curr['SMA1'] > curr['SMA2'])
+    sma_sell = (prev['SMA1'] >= prev['SMA2']) and (curr['SMA1'] < curr['SMA2'])
+
+    macd_buy = (prev['MACD'] <= prev['MACD_Signal']) and (curr['MACD'] > curr['MACD_Signal'])
+    macd_sell = (prev['MACD'] >= prev['MACD_Signal']) and (curr['MACD'] < curr['MACD_Signal'])
+
+    return {
+        "Ticker": ticker.replace(".NS", ""),
+        "Price": f"₹{curr['Close']:.2f}",
+        "SMA Buy Signal": "BUY" if sma_buy else "-",
+        "SMA Sell Signal": "SELL" if sma_sell else "-",
+        "MACD Buy Signal": "BUY" if macd_buy else "-",
+        "MACD Sell Signal": "SELL" if macd_sell else "-"
+    }
+
+# --- Display Results ---
+st.subheader(f"Screening Results ({selected_list_label} - {selected_tf_label})")
+
+if st.button("Run Screener"):
+    results = []
+    with st.spinner("Analyzing stocks..."):
+        for symbol in selected_stocks:
+            res = analyze_stock(symbol)
+            if res:
+                results.append(res)
+    
+    if results:
+        res_df = pd.DataFrame(results)
+        st.dataframe(res_df, use_container_width=True)
+    else:
+        st.info("No data available for the selected criteria.")
 else:
-    sma_buy=res[res['SMA Signal']=='BUY'].copy(); sma_sell=res[res['SMA Signal']=='SELL'].copy()
-    macd_buy=res[res['MACD Signal']=='BUY'].copy(); macd_sell=res[res['MACD Signal']=='SELL'].copy()
-    st.subheader('Signals')
-    a,b,c,d=st.columns(4)
-    a.metric('🟢 SMA BUY',len(sma_buy)); b.metric('🔴 SMA SELL',len(sma_sell)); c.metric('🟢 MACD BUY',len(macd_buy)); d.metric('🔴 MACD SELL',len(macd_sell))
-    tabs=st.tabs(['🟢 SMA BUY','🔴 SMA SELL','🟢 MACD BUY','🔴 MACD SELL','All scanned'])
-    def show(df, kind):
-        if df.empty: st.info('No fresh crossover detected on the last completed candle.')
-        else:
-            x=df[['Symbol','Name','Price']].copy()
-            x['Cross date']=df['SMA Cross' if kind=='SMA' else 'MACD Cross'].map(fmt_date)
-            st.dataframe(x,hide_index=True,use_container_width=True)
-    with tabs[0]: show(sma_buy,'SMA')
-    with tabs[1]: show(sma_sell,'SMA')
-    with tabs[2]: show(macd_buy,'MACD')
-    with tabs[3]: show(macd_sell,'MACD')
-    with tabs[4]:
-        st.dataframe(res[['Symbol','Name','Price','SMA Signal','MACD Signal']],hide_index=True,use_container_width=True)
-
-    st.divider(); st.subheader('📊 Stock chart')
-    sym=st.selectbox('Select stock', [x[0] for x in UNIVERSES[universe]])
-    out=chart(sym,tf,s1,s2,mf,ms,mg)
-    if out:
-        fig,df,macd,sig=out
-        st.plotly_chart(fig,use_container_width=True)
-        ss,sd=sma_signal(df,s1,s2); mm,md,mv,sv=macd_signal(df,mf,ms,mg)
-        c1,c2=st.columns(2)
-        with c1:
-            st.markdown(f'**SMA {s1}/{s2}:** `{ss}`')
-            if sd: st.caption('Crossover: '+fmt_date(sd))
-        with c2:
-            st.markdown(f'**MACD {mf}/{ms}/{mg}:** `{mm}`')
-            if md: st.caption('Crossover: '+fmt_date(md))
-
-st.caption('Data-source note: trial mode is for testing the application. Verify market data with an official broker/exchange feed before making trading decisions.')
+    st.info("Click 'Run Screener' to load signals.")
